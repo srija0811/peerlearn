@@ -45,7 +45,7 @@ goto fail
 @REM Check if system mvn is available or invoke wrapper
 where mvn >nul 2>nul
 if %ERRORLEVEL% equ 0 (
-    mvn %*
+    call mvn %*
     goto end
 )
 
@@ -72,3 +72,4 @@ set ERROR_CODE=1
 :end
 @endlocal & set ERROR_CODE=%ERROR_CODE%
 exit /B %ERROR_CODE%
+
