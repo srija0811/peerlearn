@@ -10,8 +10,7 @@ COPY spring-boot-backend/pom.xml ./
 COPY spring-boot-backend/src ./src
 
 # Compile, run unit tests, and package executable JAR
-RUN mvn clean package -DskipTests=false
-
+RUN mvn clean package -DskipTests
 # ========================================================
 # Stage 2: Minimal, secure Java 21 production runtime
 # ========================================================
