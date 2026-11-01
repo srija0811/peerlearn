@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { storage } from './services/storage';
-import { Student, StudentSkill } from './types';
+import { api } from './services/api';
+import { ExchangeRequest, MutualSkillMatch, Student } from './types';
 import { Navbar } from './components/Navbar';
 import { Sidebar } from './components/Sidebar';
 import { LandingPage } from './components/LandingPage';
@@ -10,8 +11,6 @@ import { TalentProfiles } from './components/TalentProfiles';
 import { MySkills } from './components/MySkills';
 import { SkillCategories } from './components/SkillCategories';
 import { ExchangeRequests } from './components/ExchangeRequests';
-import { LearningSessions } from './components/LearningSessions';
-import { ActivityFeed } from './components/ActivityFeed';
 import { AdminDashboard } from './components/AdminDashboard';
 import { AuthModal } from './components/AuthModal';
 import { DevOpsModal } from './components/DevOpsModal';
@@ -19,66 +18,17 @@ import { SendRequestModal } from './components/SendRequestModal';
 import { ScheduleSessionModal } from './components/ScheduleSessionModal';
 import { StudentProfileModal } from './components/StudentProfileModal';
 import { EditProfileModal } from './components/EditProfileModal';
-
-interface BackendStudent {
-  id: number | string;
-  fullName: string;
-  email: string;
-  collegeName: string;
-  branch: string;
-  academicYear: string;
-  profilePhoto?: string | null;
-  bio?: string | null;
-  availability?: string;
-  rating?: number;
-  reviewCount?: number;
-  xpPoints?: number;
-  completedSessionsCount?: number;
-  active?: boolean;
-  createdAt?: string;
-  skills?: Array<{
-    id: number | string;
-    skillName: string;
-    category: string;
-    proficiency: string;
-    type: string;
-    yearsExperienceOrGoal?: string;
-    experienceOrGoal?: string;
-  }>;
-  achievements?: string[];
-}
-
-const mapBackendStudent = (student: BackendStudent): Student => ({
-  id: String(student.id),
-  name: student.fullName,
-  email: student.email,
-  collegeName: student.collegeName,
-  branch: student.branch,
-  academicYear: student.academicYear,
-  avatarUrl: student.profilePhoto || undefined,
-  bio: student.bio || '',
-  availability: (student.availability || 'Available') as Student['availability'],
-  rating: student.rating ?? 5,
-  reviewCount: student.reviewCount ?? 0,
-  xpPoints: student.xpPoints ?? 100,
-  completedSessionsCount: student.completedSessionsCount ?? 0,
-  badges: student.achievements || [],
-  status: student.active === false ? 'DEACTIVATED' : 'ACTIVE',
-  createdAt: student.createdAt || new Date().toISOString(),
-  skills: (student.skills || []).map((skill): StudentSkill => ({
-    id: String(skill.id),
-    skillName: skill.skillName,
-    category: skill.category as StudentSkill['category'],
-    proficiency: skill.proficiency as StudentSkill['proficiency'],
-    type: skill.type as StudentSkill['type'],
-    yearsExperienceOrGoal: skill.yearsExperienceOrGoal || skill.experienceOrGoal || '',
-  })),
-});
+import { PeerHub } from './components/PeerHub';
 
 export default function App() {
   const [currentView, setCurrentView] = useState<string>('dashboard');
   const [currentStudent, setCurrentStudent] = useState<Student | null>(storage.getCurrentStudent());
   const [isAdmin, setIsAdmin] = useState<boolean>(storage.isAdmin());
+  const [isBackendSession, setIsBackendSession] = useState(false);
+  const [exchangeRequests, setExchangeRequests] = useState<ExchangeRequest[]>([]);
+  const [peerStudents, setPeerStudents] = useState<Student[]>([]);
+  const [matches, setMatches] = useState<MutualSkillMatch[]>([]);
+  const [requestLoadError, setRequestLoadError] = useState<string | null>(null);
 
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<'LOGIN' | 'REGISTER' | 'ADMIN'>('LOGIN');
@@ -92,6 +42,7 @@ export default function App() {
   const [schedulePeerId, setSchedulePeerId] = useState<string>('');
   const [scheduleSkill, setScheduleSkill] = useState<string>('');
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
+  const [peerChatRequestId, setPeerChatRequestId] = useState<string | null>(null);
 
   const refreshState = useCallback(async () => {
     const savedId = localStorage.getItem('peerlearn_api_student_id');
@@ -100,34 +51,82 @@ export default function App() {
     if (savedRole === 'ROLE_ADMIN') {
       setIsAdmin(true);
       setCurrentStudent(null);
+      setIsBackendSession(true);
+      setExchangeRequests([]);
+      setPeerStudents([]);
+      setMatches([]);
       return;
     }
 
     if (savedId) {
       try {
-        const response = await fetch(`/api/students/${encodeURIComponent(savedId)}`, {
-          method: 'GET',
-          credentials: 'include',
-          headers: { Accept: 'application/json' },
-        });
-        if (!response.ok) {
-          throw new Error(`Unable to load student profile (${response.status})`);
-        }
-        const backendStudent = (await response.json()) as BackendStudent;
-        const mappedStudent = mapBackendStudent(backendStudent);
-        setCurrentStudent(mappedStudent);
+        const student = await api.getStudent(savedId);
+        setCurrentStudent(student);
         setIsAdmin(false);
+        setIsBackendSession(true);
+
+        try {
+          setExchangeRequests(await api.getRequests());
+          setRequestLoadError(null);
+        } catch (error) {
+          setExchangeRequests([]);
+          setRequestLoadError(error instanceof Error ? error.message : 'Unable to load exchange requests.');
+        }
+
+        try {
+          const [students, studentMatches] = await Promise.all([
+            api.getStudents(),
+            api.getMatches(savedId),
+          ]);
+          setPeerStudents(students);
+          setMatches(studentMatches);
+        } catch (error) {
+          console.error('Backend peer data could not be loaded:', error);
+          setPeerStudents([]);
+          setMatches([]);
+        }
         return;
       } catch (error) {
         console.error('Backend student profile could not be loaded:', error);
+        localStorage.setItem('peerlearn_auth_required', 'true');
+        localStorage.removeItem('peerlearn_api_student');
+        localStorage.removeItem('peerlearn_api_student_id');
+        localStorage.removeItem('peerlearn_api_role');
         setCurrentStudent(null);
         setIsAdmin(false);
+        setIsBackendSession(false);
+        setExchangeRequests([]);
+        setPeerStudents([]);
+        setMatches([]);
+        setRequestLoadError(null);
+        setCurrentView('landing');
+        setAuthMode('LOGIN');
+        setIsAuthOpen(true);
         return;
       }
     }
 
+    if (localStorage.getItem('peerlearn_auth_required') === 'true') {
+      setCurrentStudent(null);
+      setIsAdmin(false);
+      setIsBackendSession(false);
+      setExchangeRequests([]);
+      setPeerStudents([]);
+      setMatches([]);
+      setRequestLoadError(null);
+      setCurrentView('landing');
+      setAuthMode('LOGIN');
+      setIsAuthOpen(true);
+      return;
+    }
+
     setCurrentStudent(storage.getCurrentStudent());
     setIsAdmin(storage.isAdmin());
+    setIsBackendSession(false);
+    setExchangeRequests([]);
+    setPeerStudents([]);
+    setMatches([]);
+    setRequestLoadError(null);
   }, []);
 
   useEffect(() => {
@@ -161,6 +160,11 @@ export default function App() {
     setSchedulePeerId(peerId || '');
     setScheduleSkill(defaultSkill || '');
     setIsScheduleOpen(true);
+  };
+
+  const handleOpenPeerChat = (request: ExchangeRequest) => {
+    setPeerChatRequestId(request.id);
+    setCurrentView('peer-chat');
   };
 
   if (currentView === 'admin') {
@@ -201,27 +205,26 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#F8F7FC] flex flex-col text-[#202033]">
-      <Navbar currentStudent={currentStudent} isAdmin={isAdmin} onOpenAuth={handleOpenAuth} onOpenDevOps={() => setIsDevOpsOpen(true)} onNavigate={tab => setCurrentView(tab)} onStudentChanged={() => void refreshState()} onEditProfile={() => setIsEditProfileOpen(true)} />
+      <Navbar currentStudent={currentStudent} isAdmin={isAdmin} isBackendSession={isBackendSession} requests={exchangeRequests} onOpenAuth={handleOpenAuth} onOpenDevOps={() => setIsDevOpsOpen(true)} onNavigate={tab => setCurrentView(tab)} onOpenChatRequest={requestId => { setPeerChatRequestId(requestId); setCurrentView('peer-chat'); }} onStudentChanged={() => void refreshState()} onEditProfile={() => setIsEditProfileOpen(true)} />
 
       <div className="flex-1 flex max-w-7xl w-full mx-auto">
-        <Sidebar currentTab={currentView} onNavigate={tab => setCurrentView(tab)} currentStudent={currentStudent} isAdmin={isAdmin} onStudentUpdated={() => void refreshState()} />
+        <Sidebar currentTab={currentView} onNavigate={tab => setCurrentView(tab)} currentStudent={currentStudent} isAdmin={isAdmin} requests={isBackendSession ? exchangeRequests : undefined} onStudentUpdated={() => void refreshState()} />
 
         <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto">
-          {currentView === 'dashboard' && <StudentDashboard currentStudent={currentStudent} onNavigate={tab => setCurrentView(tab)} onConnect={handleConnectWithStudent} onViewProfile={student => setProfileModalStudent(student)} onScheduleSession={() => handleScheduleSession()} onOpenAddSkill={() => setCurrentView('my-skills')} onCompleteSession={() => void refreshState()} onEditProfile={() => setIsEditProfileOpen(true)} />}
-          {currentView === 'matches' && <SmartMatching currentStudent={currentStudent} onConnect={handleConnectWithStudent} onViewProfile={student => setProfileModalStudent(student)} />}
-          {currentView === 'profiles' && <TalentProfiles currentStudent={currentStudent} onConnect={student => handleConnectWithStudent(student)} onViewProfile={student => setProfileModalStudent(student)} />}
+          {currentView === 'dashboard' && <StudentDashboard currentStudent={currentStudent} requests={isBackendSession ? exchangeRequests : undefined} matches={isBackendSession ? matches : undefined} onNavigate={tab => setCurrentView(tab)} onConnect={handleConnectWithStudent} onViewProfile={student => setProfileModalStudent(student)} onOpenAddSkill={() => setCurrentView('my-skills')} onEditProfile={() => setIsEditProfileOpen(true)} />}
+          {currentView === 'matches' && <SmartMatching currentStudent={currentStudent} matches={isBackendSession ? matches : undefined} onConnect={handleConnectWithStudent} onViewProfile={student => setProfileModalStudent(student)} />}
+          {currentView === 'profiles' && <TalentProfiles currentStudent={currentStudent} students={isBackendSession ? peerStudents : undefined} onConnect={student => handleConnectWithStudent(student)} onViewProfile={student => setProfileModalStudent(student)} />}
           {currentView === 'my-skills' && <MySkills currentStudent={currentStudent} onStudentUpdated={() => void refreshState()} />}
           {currentView === 'categories' && <SkillCategories onSelectCategory={() => setCurrentView('profiles')} />}
-          {currentView === 'requests' && <ExchangeRequests currentStudent={currentStudent} onScheduleSession={handleScheduleSession} onRequestsUpdated={() => void refreshState()} />}
-          {currentView === 'sessions' && <LearningSessions currentStudent={currentStudent} onOpenScheduler={() => handleScheduleSession()} onSessionsUpdated={() => void refreshState()} />}
-          {currentView === 'activity' && <ActivityFeed />}
+          {currentView === 'requests' && <ExchangeRequests currentStudent={currentStudent} requests={isBackendSession ? exchangeRequests : undefined} isBackendSession={isBackendSession} loadError={requestLoadError} onOpenChat={handleOpenPeerChat} onClose={() => setCurrentView('dashboard')} onScheduleSession={handleScheduleSession} onRequestsUpdated={() => void refreshState()} />}
+          {currentView === 'peer-chat' && <PeerHub currentStudent={currentStudent} requests={exchangeRequests} initialRequestId={peerChatRequestId} isBackendSession={isBackendSession} onNavigate={tab => setCurrentView(tab)} onScheduleSession={handleScheduleSession} onRequestsUpdated={() => void refreshState()} />}
         </main>
       </div>
 
       <AuthModal isOpen={isAuthOpen} onClose={() => setIsAuthOpen(false)} initialMode={authMode} onSuccess={handleAuthSuccess} />
       <DevOpsModal isOpen={isDevOpsOpen} onClose={() => setIsDevOpsOpen(false)} />
-      <SendRequestModal isOpen={Boolean(targetStudentForRequest)} onClose={() => setTargetStudentForRequest(null)} targetStudent={targetStudentForRequest} defaultTeachingSkill={defaultTeachingSkill} defaultLearningSkill={defaultLearningSkill} onRequestSent={() => { void refreshState(); setCurrentView('requests'); }} />
-      <ScheduleSessionModal isOpen={isScheduleOpen} onClose={() => setIsScheduleOpen(false)} preselectedPeerId={schedulePeerId} defaultSkillName={scheduleSkill} onSessionScheduled={() => { void refreshState(); setCurrentView('sessions'); }} />
+      <SendRequestModal isOpen={Boolean(targetStudentForRequest)} onClose={() => setTargetStudentForRequest(null)} targetStudent={targetStudentForRequest} currentStudent={currentStudent} isBackendSession={isBackendSession} defaultTeachingSkill={defaultTeachingSkill} defaultLearningSkill={defaultLearningSkill} onRequestSent={() => { void refreshState(); setCurrentView('requests'); }} />
+      <ScheduleSessionModal isOpen={isScheduleOpen} onClose={() => setIsScheduleOpen(false)} preselectedPeerId={schedulePeerId} defaultSkillName={scheduleSkill} onSessionScheduled={() => { void refreshState(); setCurrentView('dashboard'); }} />
       <StudentProfileModal isOpen={Boolean(profileModalStudent)} onClose={() => setProfileModalStudent(null)} student={profileModalStudent} onConnect={student => handleConnectWithStudent(student)} />
       <EditProfileModal isOpen={isEditProfileOpen} onClose={() => setIsEditProfileOpen(false)} student={currentStudent} onProfileUpdated={() => void refreshState()} />
     </div>

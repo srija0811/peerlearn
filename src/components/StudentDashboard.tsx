@@ -3,53 +3,51 @@ import {
   Sparkles,
   Award,
   Users,
-  Calendar,
   ArrowRight,
   CheckCircle2,
-  Clock,
-  Video,
-  MapPin,
   TrendingUp,
   AlertCircle,
   Plus,
   Repeat,
-  Megaphone,
   Star
 } from 'lucide-react';
-import { Student, ExchangeRequest, LearningSession, ActivityLog } from '../types';
+import { Student, ExchangeRequest, MutualSkillMatch } from '../types';
 import { storage } from '../services/storage';
 
 interface StudentDashboardProps {
   currentStudent: Student | null;
+  requests?: ExchangeRequest[];
+  matches?: MutualSkillMatch[];
   onNavigate: (tab: string) => void;
   onConnect: (student: Student, teachSkill?: string, learnSkill?: string) => void;
   onViewProfile: (student: Student) => void;
-  onScheduleSession: () => void;
   onOpenAddSkill: () => void;
-  onCompleteSession: (session: LearningSession) => void;
   onEditProfile?: () => void;
 }
 
 export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   currentStudent,
+  requests: backendRequests,
+  matches: backendMatches,
   onNavigate,
   onConnect,
   onViewProfile,
-  onScheduleSession,
   onOpenAddSkill,
-  onCompleteSession,
   onEditProfile,
 }) => {
   if (!currentStudent) return null;
 
-  const matches = storage.getMatchesForStudent(currentStudent.id);
+  const matches = backendMatches || storage.getMatchesForStudent(currentStudent.id);
   const mutualMatches = matches.filter(m => m.matchType === 'MUTUAL');
   const topMutualMatch = mutualMatches[0];
 
-  const requests = storage.getRequestsForStudent(currentStudent.id);
-  const sessions = storage.getSessionsForStudent(currentStudent.id);
-  const activities = storage.getActivities(5);
-  const announcements = storage.getAnnouncements();
+  const requests = backendRequests
+    ? {
+        incoming: backendRequests.filter(request => request.receiverId === currentStudent.id && request.status === 'PENDING'),
+        sent: backendRequests.filter(request => request.senderId === currentStudent.id && request.status === 'PENDING'),
+        accepted: backendRequests.filter(request => request.status === 'ACCEPTED'),
+      }
+    : storage.getRequestsForStudent(currentStudent.id);
   const allSkills = storage.getAllSkills();
 
   // Profile completion calculation:
@@ -104,28 +102,8 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
         </div>
       </div>
 
-      {/* Campus Announcements (if any) */}
-      {announcements.length > 0 && (
-        <div className="bg-[#FAF9FD] border border-[#E9DDFC] rounded-2xl p-4 flex items-start gap-3">
-          <div className="w-8 h-8 rounded-xl bg-[#7546D8] text-white flex items-center justify-center shrink-0 mt-0.5">
-            <Megaphone className="w-4 h-4" />
-          </div>
-          <div className="flex-1">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-[#202033]">{announcements[0].title}</span>
-              <span className="text-[10px] font-semibold bg-[#E9DDFC] text-[#5425A8] px-2 py-0.2 rounded-md">
-                Campus Announcement
-              </span>
-            </div>
-            <p className="text-xs text-[#77758A] mt-0.5 leading-relaxed">
-              {announcements[0].content}
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* 4 Statistics Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* 3 Statistics Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {/* Total Available Skills */}
         <div
           onClick={() => onNavigate('categories')}
@@ -191,32 +169,12 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
           </p>
         </div>
 
-        {/* Completed Sessions */}
-        <div
-          onClick={() => onNavigate('sessions')}
-          className="bg-white p-5 rounded-2xl border border-gray-100 shadow-xs hover:border-[#E9DDFC] hover:shadow-md transition-all cursor-pointer group"
-        >
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-bold text-[#77758A] uppercase tracking-wider">
-              Completed Sessions
-            </span>
-            <div className="w-9 h-9 rounded-xl bg-green-50 text-[#16A36A] flex items-center justify-center group-hover:scale-110 transition-transform">
-              <CheckCircle2 className="w-4 h-4" />
-            </div>
-          </div>
-          <p className="text-2xl font-extrabold text-[#16A36A] font-mono tabular-nums">
-            {currentStudent.completedSessionsCount}
-          </p>
-          <p className="text-[11px] text-[#77758A] mt-1">
-            Earned <span className="font-bold text-[#5425A8] font-mono">{currentStudent.xpPoints} XP</span>
-          </p>
-        </div>
       </div>
 
-      {/* Main Grid: Recommended Mutual Match Spotlight & Upcoming Sessions */}
+      {/* Main Grid: Recommended Mutual Match Spotlight & Profile Completion */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left 7 Columns: Top Mutual Skill Match Spotlight */}
-        <div className="lg:col-span-7 space-y-6">
+        {/* Left 8 Columns: Top Mutual Skill Match Spotlight */}
+        <div className="lg:col-span-8 space-y-6">
           {topMutualMatch && (
             <div className="bg-white rounded-3xl p-6 border border-[#A78BFA] shadow-sm relative overflow-hidden">
               <div className="flex items-center justify-between pb-4 border-b border-gray-100">
@@ -312,96 +270,10 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
             </div>
           )}
 
-          {/* Upcoming Learning Sessions */}
-          <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-xs">
-            <div className="flex items-center justify-between pb-4 border-b border-gray-100 mb-4">
-              <div className="flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-[#7546D8]" />
-                <h3 className="text-sm font-bold text-[#202033]">Upcoming Learning Sessions</h3>
-              </div>
-              <button
-                onClick={() => onNavigate('sessions')}
-                className="text-xs font-bold text-[#7546D8] hover:underline cursor-pointer"
-              >
-                View Calendar
-              </button>
-            </div>
-
-            {sessions.upcoming.length === 0 ? (
-              <div className="py-8 text-center text-xs text-[#77758A]">
-                <Calendar className="w-8 h-8 text-gray-300 mx-auto mb-2" />
-                <p className="font-semibold text-[#202033]">No upcoming sessions scheduled</p>
-                <p className="mt-1">Connect with an accepted peer to schedule a 1-on-1 session.</p>
-                <button
-                  onClick={onScheduleSession}
-                  className="mt-3 px-4 py-2 bg-[#FAF9FD] text-[#5425A8] border border-[#E9DDFC] rounded-xl font-bold hover:bg-[#E9DDFC] transition-colors cursor-pointer"
-                >
-                  Schedule Session
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {sessions.upcoming.slice(0, 3).map(sess => {
-                  const isMentor = sess.mentorId === currentStudent.id;
-                  return (
-                    <div
-                      key={sess.id}
-                      className="p-4 bg-[#F8F7FC] rounded-2xl border border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-                    >
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold text-[#202033]">{sess.skillName}</span>
-                          <span
-                            className={`text-[10px] px-2 py-0.5 rounded font-semibold ${
-                              isMentor ? 'bg-green-100 text-[#16A36A]' : 'bg-[#E9DDFC] text-[#5425A8]'
-                            }`}
-                          >
-                            {isMentor ? 'You are Teaching' : 'You are Learning'}
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-[#77758A] mt-1 flex items-center gap-3">
-                          <span className="flex items-center gap-1">
-                            <Clock className="w-3 h-3 text-[#7546D8]" />
-                            <span>{sess.date} at {sess.time} ({sess.durationMinutes}m)</span>
-                          </span>
-                          <span className="flex items-center gap-1">
-                            {sess.mode === 'Online' ? <Video className="w-3 h-3" /> : <MapPin className="w-3 h-3" />}
-                            <span>{sess.mode}</span>
-                          </span>
-                        </p>
-                        <p className="text-[11px] text-gray-500 mt-0.5">
-                          With {isMentor ? sess.learnerName : sess.mentorName}
-                        </p>
-                      </div>
-
-                      <div className="flex items-center gap-2 shrink-0">
-                        {sess.mode === 'Online' && sess.meetingLinkOrVenue.startsWith('http') && (
-                          <a
-                            href={sess.meetingLinkOrVenue}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="px-3 py-1.5 bg-[#FAF9FD] text-[#5425A8] border border-[#E9DDFC] rounded-lg text-xs font-semibold hover:bg-[#E9DDFC] transition-colors"
-                          >
-                            Join Meet
-                          </a>
-                        )}
-                        <button
-                          onClick={() => onCompleteSession(sess)}
-                          className="px-3 py-1.5 bg-[#16A36A] hover:bg-green-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer"
-                        >
-                          Mark Complete
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
         </div>
 
-        {/* Right 5 Columns: Profile Completion & Campus Activity */}
-        <div className="lg:col-span-5 space-y-6">
+        {/* Right 4 Columns: Profile Completion */}
+        <div className="lg:col-span-4">
           {/* Profile Completion Box */}
           <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-xs">
             <div className="flex items-center justify-between mb-3">
@@ -457,35 +329,6 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
             )}
           </div>
 
-          {/* Recent Campus Activity */}
-          <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-xs">
-            <div className="flex items-center justify-between pb-3 border-b border-gray-100 mb-4">
-              <h3 className="text-xs font-bold text-[#202033] uppercase tracking-wider">
-                Recent Campus Activity
-              </h3>
-              <button
-                onClick={() => onNavigate('activity')}
-                className="text-xs font-bold text-[#7546D8] hover:underline cursor-pointer"
-              >
-                View All
-              </button>
-            </div>
-
-            <div className="space-y-3.5">
-              {activities.map(act => (
-                <div key={act.id} className="flex items-start gap-3 text-xs">
-                  <div className="w-2 h-2 rounded-full bg-[#7546D8] mt-1.5 shrink-0" />
-                  <div className="flex-1">
-                    <p className="font-semibold text-[#202033]">{act.title}</p>
-                    <p className="text-[11px] text-[#77758A] leading-tight">{act.description}</p>
-                    <span className="text-[10px] text-gray-400 font-mono mt-0.5 block">
-                      {act.timestamp}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
         </div>
       </div>
     </div>

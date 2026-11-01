@@ -41,6 +41,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   const completeAuthentication = (result: AuthResponse) => {
     // Keep the real backend identity available for App.tsx to hydrate the dashboard.
+    localStorage.removeItem('peerlearn_auth_required');
     localStorage.setItem('peerlearn_api_student', JSON.stringify(result));
     localStorage.setItem('peerlearn_api_student_id', String(result.studentId));
     localStorage.setItem('peerlearn_api_role', result.role || 'ROLE_STUDENT');

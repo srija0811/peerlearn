@@ -15,12 +15,14 @@ import { storage } from '../services/storage';
 
 interface TalentProfilesProps {
   currentStudent: Student | null;
+  students?: Student[];
   onConnect: (student: Student) => void;
   onViewProfile: (student: Student) => void;
 }
 
 export const TalentProfiles: React.FC<TalentProfilesProps> = ({
   currentStudent,
+  students: backendStudents,
   onConnect,
   onViewProfile,
 }) => {
@@ -29,7 +31,7 @@ export const TalentProfiles: React.FC<TalentProfilesProps> = ({
   const [selectedAvailability, setSelectedAvailability] = useState('ALL');
   const [selectedCategory, setSelectedCategory] = useState('ALL');
 
-  const students = storage.getStudents();
+  const students = backendStudents || storage.getStudents();
   // Filter out current user from browse list
   const otherStudents = currentStudent
     ? students.filter(s => s.id !== currentStudent.id)

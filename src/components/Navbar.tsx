@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   GraduationCap,
   Bell,
@@ -9,17 +9,22 @@ import {
   LogOut,
   User,
   Sparkles,
-  ArrowRightLeft
+  ArrowRightLeft,
+  X,
 } from 'lucide-react';
-import { Student } from '../types';
+import { ExchangeRequest, Student, StudentNotification } from '../types';
 import { storage } from '../services/storage';
+import { api } from '../services/api';
 
 interface NavbarProps {
   currentStudent: Student | null;
   isAdmin: boolean;
+  isBackendSession: boolean;
+  requests: ExchangeRequest[];
   onOpenAuth: (mode: 'LOGIN' | 'REGISTER' | 'ADMIN') => void;
   onOpenDevOps: () => void;
   onNavigate: (view: string) => void;
+  onOpenChatRequest: (requestId: string) => void;
   onStudentChanged: () => void;
   onEditProfile?: () => void;
 }
@@ -27,20 +32,86 @@ interface NavbarProps {
 export const Navbar: React.FC<NavbarProps> = ({
   currentStudent,
   isAdmin,
+  isBackendSession,
+  requests,
   onOpenAuth,
   onOpenDevOps,
   onNavigate,
+  onOpenChatRequest,
   onStudentChanged,
   onEditProfile,
 }) => {
   const [showUserDropdown, setShowUserDropdown] = useState(false);
   const [showSwitchDropdown, setShowSwitchDropdown] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [notifications, setNotifications] = useState<StudentNotification[]>([]);
+  const [notificationError, setNotificationError] = useState<string | null>(null);
 
   const students = storage.getStudents();
   const pendingRequests = currentStudent
-    ? storage.getRequestsForStudent(currentStudent.id).incoming
+    ? (isBackendSession
+        ? requests.filter(request => request.receiverId === currentStudent.id && request.status === 'PENDING')
+        : storage.getRequestsForStudent(currentStudent.id).incoming)
     : [];
+
+  useEffect(() => {
+    if (!currentStudent) {
+      setNotifications([]);
+      setNotificationError(null);
+      return;
+    }
+
+    if (!isBackendSession) {
+      setNotifications(storage.getNotificationsForStudent(currentStudent.id));
+      setNotificationError(null);
+      return;
+    }
+
+    let active = true;
+    const loadNotifications = async () => {
+      try {
+        const result = await api.getNotifications();
+        if (active) {
+          setNotifications(result);
+          setNotificationError(null);
+        }
+      } catch (error) {
+        if (active) {
+          setNotificationError(error instanceof Error ? error.message : 'Unable to load notifications.');
+        }
+      }
+    };
+
+    void loadNotifications();
+    const timer = window.setInterval(() => void loadNotifications(), 15000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [isBackendSession, currentStudent?.id]);
+
+  const unreadCount = notifications.filter(notification => !notification.read).length + pendingRequests.length;
+
+  const handleNotificationClick = async (notification: StudentNotification) => {
+    try {
+      if (isBackendSession) {
+        await api.markNotificationRead(notification.id);
+      } else if (currentStudent) {
+        storage.markNotificationRead(currentStudent.id, notification.id);
+      }
+      setNotifications(previous => previous.map(item =>
+        item.id === notification.id ? { ...item, read: true } : item
+      ));
+      setShowNotifications(false);
+      if (isBackendSession && notification.type === 'REQUEST_ACCEPTED' && notification.relatedRequestId) {
+        onOpenChatRequest(notification.relatedRequestId);
+      } else {
+        onNavigate('requests');
+      }
+    } catch (error) {
+      setNotificationError(error instanceof Error ? error.message : 'Unable to update notification.');
+    }
+  };
 
   const handleSwitchStudent = (id: string) => {
     storage.setCurrentUserId(id);
@@ -128,8 +199,11 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             {showSwitchDropdown && (
               <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-100 p-2 z-50">
-                <div className="px-2 py-1 text-[11px] font-bold text-[#77758A] uppercase tracking-wider">
-                  Test Personas
+                <div className="flex items-center justify-between px-2 py-1">
+                  <span className="text-[11px] font-bold text-[#77758A] uppercase tracking-wider">Test Personas</span>
+                  <button type="button" aria-label="Close demo student menu" onClick={() => setShowSwitchDropdown(false)} className="p-1 text-gray-400 hover:text-gray-700 rounded cursor-pointer">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
                 </div>
                 {students.map(s => {
                   const isCurrent = currentStudent?.id === s.id;
@@ -173,23 +247,42 @@ export const Navbar: React.FC<NavbarProps> = ({
               className="relative p-2 text-gray-500 hover:text-[#7546D8] hover:bg-[#F8F7FC] rounded-xl transition-colors cursor-pointer"
             >
               <Bell className="w-4 h-4" />
-              {pendingRequests.length > 0 && (
-                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-[#E05252] rounded-full ring-2 ring-white" />
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 bg-[#E05252] text-white rounded-full text-[9px] font-bold flex items-center justify-center ring-2 ring-white">
+                  {unreadCount}
+                </span>
               )}
             </button>
 
             {showNotifications && (
               <div className="absolute right-0 mt-2 w-72 bg-white rounded-2xl shadow-xl border border-gray-100 p-3 z-50">
                 <div className="flex items-center justify-between pb-2 border-b border-gray-100 mb-2">
-                  <span className="text-xs font-bold text-[#202033]">Exchange Requests</span>
-                  <span className="text-[11px] text-[#7546D8] font-semibold">
-                    {pendingRequests.length} pending
-                  </span>
+                  <div>
+                    <span className="text-xs font-bold text-[#202033]">Notifications</span>
+                    <span className="ml-2 text-[11px] text-[#7546D8] font-semibold">{unreadCount} unread</span>
+                  </div>
+                  <button type="button" aria-label="Close notifications" onClick={() => setShowNotifications(false)} className="p-1 text-gray-400 hover:text-gray-700 rounded cursor-pointer">
+                    <X className="w-4 h-4" />
+                  </button>
                 </div>
-                {pendingRequests.length === 0 ? (
-                  <p className="text-xs text-[#77758A] py-3 text-center">No pending exchange requests right now.</p>
+                {notificationError && (
+                  <p role="alert" className="py-2 text-[11px] text-red-600">{notificationError}</p>
+                )}
+                {notifications.length === 0 && pendingRequests.length === 0 ? (
+                  <p className="text-xs text-[#77758A] py-3 text-center">No notifications right now.</p>
                 ) : (
-                  <div className="space-y-2">
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                    {notifications.map(notification => (
+                      <button
+                        key={notification.id}
+                        type="button"
+                        onClick={() => void handleNotificationClick(notification)}
+                        className={`w-full text-left p-2 rounded-xl transition-colors cursor-pointer text-xs ${notification.read ? 'hover:bg-[#FAF9FD]' : 'bg-[#FAF9FD] hover:bg-[#E9DDFC]/50'}`}
+                      >
+                        <p className="font-semibold text-[#202033]">{notification.title}</p>
+                        <p className="text-[11px] text-[#77758A]">{notification.message}</p>
+                      </button>
+                    ))}
                     {pendingRequests.map(req => (
                       <div
                         key={req.id}
@@ -243,14 +336,19 @@ export const Navbar: React.FC<NavbarProps> = ({
 
               {showUserDropdown && (
                 <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-100 p-2 z-50">
-                  <div className="px-3 py-2 border-b border-gray-100 mb-1">
-                    <p className="text-xs font-bold text-[#202033]">{currentStudent.name}</p>
-                    <p className="text-[10px] text-[#77758A] truncate">{currentStudent.collegeName}</p>
-                    <div className="mt-1 flex items-center gap-2 text-[10px] font-semibold text-[#7546D8]">
-                      <span>{currentStudent.xpPoints} XP</span>
-                      <span>·</span>
-                      <span>{currentStudent.completedSessionsCount} Sessions</span>
+                  <div className="flex items-start justify-between px-3 py-2 border-b border-gray-100 mb-1">
+                    <div>
+                      <p className="text-xs font-bold text-[#202033]">{currentStudent.name}</p>
+                      <p className="text-[10px] text-[#77758A] truncate">{currentStudent.collegeName}</p>
+                      <div className="mt-1 flex items-center gap-2 text-[10px] font-semibold text-[#7546D8]">
+                        <span>{currentStudent.xpPoints} XP</span>
+                        <span>·</span>
+                        <span>{currentStudent.completedSessionsCount} Sessions</span>
+                      </div>
                     </div>
+                    <button type="button" aria-label="Close account menu" onClick={() => setShowUserDropdown(false)} className="p-1 text-gray-400 hover:text-gray-700 rounded cursor-pointer">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
                   </div>
 
                   <button

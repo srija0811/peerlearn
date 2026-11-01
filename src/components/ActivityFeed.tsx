@@ -49,7 +49,7 @@ export const ActivityFeed: React.FC = () => {
             <h1 className="text-xl font-extrabold text-[#202033]">Campus Activity Feed</h1>
           </div>
           <p className="text-xs text-[#77758A]">
-            Real-time feed of skill discoveries, mutual matches, accepted proposals, and completed sessions across the student body.
+            Recent skill activity and completed sessions. Exchange acceptance notifications are private to the request owner.
           </p>
         </div>
 

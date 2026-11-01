@@ -11,7 +11,8 @@ import {
   ExternalLink,
   MessageSquare,
   Sparkles,
-  Award
+  Award,
+  X
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { Student, LearningSession } from '../types';
@@ -252,14 +253,26 @@ export const LearningSessions: React.FC<LearningSessionsProps> = ({
       {completingSession && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden border border-[#E9DDFC]">
-            <div className="p-6 bg-gradient-to-r from-[#16A36A] to-teal-600 text-white">
-              <div className="flex items-center gap-2 mb-1">
-                <CheckCircle2 className="w-5 h-5 text-green-200" />
-                <h3 className="text-base font-bold">Complete Learning Session</h3>
+            <div className="p-6 bg-gradient-to-r from-[#16A36A] to-teal-600 text-white relative">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <CheckCircle2 className="w-5 h-5 text-green-200" />
+                    <h3 className="text-base font-bold">Complete Learning Session</h3>
+                  </div>
+                  <p className="text-xs text-green-100">
+                    Verify session completion and award XP points to both participants.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  aria-label="Close completion dialog"
+                  onClick={() => setCompletingSession(null)}
+                  className="p-1.5 text-white/80 hover:text-white hover:bg-white/10 rounded-lg transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
-              <p className="text-xs text-green-100">
-                Verify session completion and award XP points to both participants.
-              </p>
             </div>
 
             <div className="p-6 space-y-4">

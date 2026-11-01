@@ -66,8 +66,11 @@ PeerLearn resolves these challenges through a **zero-money, reciprocal skill-swa
 - **Profile & Skill Management:** Edit bio, college name, branch, graduation year, and manage teach/learn skill matrices with 3 proficiency tiers (*Beginner*, *Intermediate*, *Advanced*).
 - **Match Explorer:** View 100% mutual matches, one-way matches, and category filters (Software Development, AI/ML, Design, Cloud, Data Science).
 - **Exchange Requests:** Send, accept, decline, and track skill exchange invitations.
+- **Private Peer Chat:** After a request is accepted, only its sender and receiver can read or send messages in their conversation. The sender receives the acceptance notification.
 - **Session Management:** Book learning sessions with date, time, and topic agendas; mark sessions completed and log progress.
 - **Activity & Notifications:** Real-time updates on incoming exchange requests and session schedule confirmations.
+
+Private chat and notifications use the authenticated Spring Security session. Chat access is checked against the accepted exchange request on every read and send; student IDs supplied by the browser are not used to authorize access. The `private_messages` table is added through Hibernate's non-destructive schema update, and the checked-in MySQL schema uses `CREATE TABLE IF NOT EXISTS` so existing rows are not reset.
 
 ### Admin Module
 - **Isolated Admin Portal:** Dedicated administrative dashboard at `/admin/login`.
@@ -842,4 +845,3 @@ kubectl delete namespace peerlearn
 ## 16. License
 
 This project is licensed under the **Apache License 2.0**. See the [LICENSE](LICENSE) file for full details.
-

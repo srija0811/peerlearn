@@ -529,8 +529,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <ul className="space-y-2 text-xs text-gray-400">
                 <li>Smart Skill Matching</li>
                 <li>Exchange Requests</li>
-                <li>Learning Sessions</li>
-                <li>Campus Activity &amp; Reviews</li>
+                <li>Private Peer Chat</li>
               </ul>
             </div>
 

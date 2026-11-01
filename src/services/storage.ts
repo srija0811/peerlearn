@@ -9,7 +9,9 @@ import {
   ReviewItem,
   MutualSkillMatch,
   ProficiencyLevel,
-  SkillCategoryName
+  SkillCategoryName,
+  SharedNote,
+  StudentNotification
 } from '../types';
 import {
   INITIAL_STUDENTS,
@@ -33,6 +35,8 @@ interface StorageSchema {
   activities: ActivityLog[];
   announcements: Announcement[];
   reviews: ReviewItem[];
+  sharedNotes?: SharedNote[];
+  notifications?: Array<StudentNotification & { recipientId: string }>;
 }
 
 class StorageService {
@@ -46,7 +50,12 @@ class StorageService {
     try {
       const stored = localStorage.getItem(DB_KEY);
       if (stored) {
-        return JSON.parse(stored);
+        const parsed = JSON.parse(stored) as StorageSchema;
+        return {
+          ...parsed,
+          sharedNotes: parsed.sharedNotes || [],
+          notifications: parsed.notifications || [],
+        };
       }
     } catch {
       console.warn('Could not read from localStorage, using initial dataset');
@@ -60,6 +69,8 @@ class StorageService {
       activities: INITIAL_ACTIVITIES,
       announcements: INITIAL_ANNOUNCEMENTS,
       reviews: INITIAL_REVIEWS,
+      sharedNotes: [],
+      notifications: [],
     };
     this.saveData(initial);
     return initial;
@@ -84,6 +95,8 @@ class StorageService {
       activities: INITIAL_ACTIVITIES,
       announcements: INITIAL_ANNOUNCEMENTS,
       reviews: INITIAL_REVIEWS,
+      sharedNotes: [],
+      notifications: [],
     };
     this.saveData(fresh);
     this.setCurrentUserId('student-srija');
@@ -396,6 +409,7 @@ class StorageService {
   public acceptExchangeRequest(requestId: string): ExchangeRequest {
     const req = this.data.requests.find(r => r.id === requestId);
     if (!req) throw new Error('Request not found');
+    if (req.status !== 'PENDING') throw new Error('Only pending requests can be accepted.');
 
     const updatedReq: ExchangeRequest = {
       ...req,
@@ -404,17 +418,38 @@ class StorageService {
     };
 
     const updatedList = this.data.requests.map(r => (r.id === requestId ? updatedReq : r));
-    this.saveData({ ...this.data, requests: updatedList });
-
-    this.logActivity({
-      type: 'ACCEPT',
+    const notification: StudentNotification & { recipientId: string } = {
+      id: `notif-${Date.now()}`,
+      recipientId: req.senderId,
       title: 'Exchange Request Accepted',
-      description: `${req.receiverName} accepted ${req.senderName}'s skill exchange (${req.teachingSkill} ⇄ ${req.learningSkill}). Ready to schedule sessions!`,
-      studentId: req.receiverId,
-      studentName: req.receiverName
+      message: `${req.receiverName} accepted your exchange request.`,
+      type: 'REQUEST_ACCEPTED',
+      relatedRequestId: req.id,
+      read: false,
+      createdAt: new Date().toISOString(),
+    };
+    this.saveData({
+      ...this.data,
+      requests: updatedList,
+      notifications: [notification, ...(this.data.notifications || [])],
     });
 
     return updatedReq;
+  }
+
+  public getNotificationsForStudent(studentId: string): StudentNotification[] {
+    return (this.data.notifications || [])
+      .filter(notification => notification.recipientId === studentId)
+      .map(({ recipientId: _recipientId, ...notification }) => notification);
+  }
+
+  public markNotificationRead(studentId: string, notificationId: string): void {
+    const notifications = (this.data.notifications || []).map(notification =>
+      notification.recipientId === studentId && notification.id === notificationId
+        ? { ...notification, read: true }
+        : notification
+    );
+    this.saveData({ ...this.data, notifications });
   }
 
   public rejectExchangeRequest(requestId: string): ExchangeRequest {
@@ -445,6 +480,29 @@ class StorageService {
     const updatedList = this.data.requests.map(r => (r.id === requestId ? updatedReq : r));
     this.saveData({ ...this.data, requests: updatedList });
     return updatedReq;
+  }
+
+  public getNotesForRequest(requestId: string): SharedNote[] {
+    return (this.data.sharedNotes || [])
+      .filter(note => note.requestId === requestId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  public createSharedNote(note: Omit<SharedNote, 'id' | 'createdAt'>): SharedNote {
+    const saved: SharedNote = {
+      ...note,
+      id: `note-${Date.now()}`,
+      createdAt: new Date().toISOString(),
+    };
+    this.saveData({ ...this.data, sharedNotes: [saved, ...(this.data.sharedNotes || [])] });
+    return saved;
+  }
+
+  public deleteSharedNote(noteId: string): void {
+    this.saveData({
+      ...this.data,
+      sharedNotes: (this.data.sharedNotes || []).filter(note => note.id !== noteId),
+    });
   }
 
   // --- Learning Sessions Workflow ---
@@ -613,7 +671,7 @@ class StorageService {
 
   // --- Announcements ---
   public getAnnouncements(): Announcement[] {
-    return [...this.data.announcements];
+    return this.data.announcements.filter(announcement => announcement.id !== 'ann-1');
   }
 
   public addAnnouncement(title: string, content: string, priority: 'NORMAL' | 'HIGH' | 'URGENT' = 'NORMAL'): Announcement {

@@ -2,11 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { X, ArrowRightLeft, Send, CheckCircle2, AlertCircle } from 'lucide-react';
 import { Student } from '../types';
 import { storage } from '../services/storage';
+import { api } from '../services/api';
 
 interface SendRequestModalProps {
   isOpen: boolean;
   onClose: () => void;
   targetStudent: Student | null;
+  currentStudent: Student | null;
+  isBackendSession: boolean;
   defaultTeachingSkill?: string;
   defaultLearningSkill?: string;
   onRequestSent: () => void;
@@ -16,11 +19,13 @@ export const SendRequestModal: React.FC<SendRequestModalProps> = ({
   isOpen,
   onClose,
   targetStudent,
+  currentStudent: providedCurrentStudent,
+  isBackendSession,
   defaultTeachingSkill = '',
   defaultLearningSkill = '',
   onRequestSent,
 }) => {
-  const currentStudent = storage.getCurrentStudent();
+  const currentStudent = providedCurrentStudent || (!isBackendSession ? storage.getCurrentStudent() : null);
 
   const [teachingSkill, setTeachingSkill] = useState('');
   const [learningSkill, setLearningSkill] = useState('');
@@ -49,31 +54,36 @@ export const SendRequestModal: React.FC<SendRequestModalProps> = ({
   const myTeachSkills = currentStudent.skills.filter(s => s.type === 'TEACH');
   const theirTeachSkills = targetStudent.skills.filter(s => s.type === 'TEACH');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
-    if (!teachingSkill || !learningSkill) {
+    if (!teachingSkill.trim() || !learningSkill) {
       setError('Please choose both a skill you can teach and a skill you want to learn.');
       return;
     }
 
     try {
-      storage.sendExchangeRequest({
+      const request = {
         receiverId: targetStudent.id,
-        teachingSkill,
+        teachingSkill: teachingSkill.trim(),
         learningSkill,
         message: message.trim() || 'Excited to exchange knowledge and schedule a learning session!',
         preferredMode,
-      });
+      };
+      if (isBackendSession) {
+        await api.sendRequest(request);
+      } else {
+        storage.sendExchangeRequest(request);
+      }
 
       setSuccess(true);
       setTimeout(() => {
         onRequestSent();
         onClose();
       }, 1400);
-    } catch (err: any) {
-      setError(err.message || 'Could not send request.');
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Could not send request.');
     }
   };
 
@@ -142,21 +152,32 @@ export const SendRequestModal: React.FC<SendRequestModalProps> = ({
                   <label className="block text-xs font-semibold text-[#202033] mb-1">
                     I Will Teach {targetStudent.name}:
                   </label>
-                  <select
-                    value={teachingSkill}
-                    onChange={e => setTeachingSkill(e.target.value)}
-                    className="w-full px-3 py-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:border-[#7546D8] bg-white"
-                  >
-                    {myTeachSkills.length === 0 ? (
-                      <option value="">No teaching skills configured yet</option>
-                    ) : (
-                      myTeachSkills.map(s => (
+                  {myTeachSkills.length === 0 ? (
+                    <>
+                      <input
+                        type="text"
+                        value={teachingSkill}
+                        onChange={e => setTeachingSkill(e.target.value)}
+                        placeholder="Enter a skill you can teach"
+                        className="w-full px-3 py-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:border-[#7546D8] bg-white"
+                      />
+                      <p className="mt-1 text-[10px] text-[#77758A]">
+                        This skill is for the proposal only and won&apos;t be added to your profile.
+                      </p>
+                    </>
+                  ) : (
+                    <select
+                      value={teachingSkill}
+                      onChange={e => setTeachingSkill(e.target.value)}
+                      className="w-full px-3 py-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:border-[#7546D8] bg-white"
+                    >
+                      {myTeachSkills.map(s => (
                         <option key={s.id} value={s.skillName}>
                           {s.skillName} ({s.proficiency})
                         </option>
-                      ))
-                    )}
-                  </select>
+                      ))}
+                    </select>
+                  )}
                 </div>
 
                 <div>
@@ -225,8 +246,12 @@ export const SendRequestModal: React.FC<SendRequestModalProps> = ({
                 </button>
                 <button
                   type="submit"
-                  disabled={myTeachSkills.length === 0 || theirTeachSkills.length === 0}
-                  className="px-5 py-2.5 bg-[#7546D8] hover:bg-[#5425A8] text-white text-xs font-bold rounded-xl shadow-md transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  disabled={theirTeachSkills.length === 0}
+                  className={`px-5 py-2.5 bg-[#7546D8] text-white text-xs font-bold rounded-xl shadow-md transition-colors flex items-center gap-1.5 ${
+                    theirTeachSkills.length === 0
+                      ? 'opacity-50 cursor-not-allowed'
+                      : 'hover:bg-[#5425A8] cursor-pointer'
+                  }`}
                 >
                   <Send className="w-3.5 h-3.5" />
                   <span>Send Exchange Proposal</span>

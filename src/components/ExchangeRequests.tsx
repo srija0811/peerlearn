@@ -14,23 +14,35 @@ import {
 } from 'lucide-react';
 import { Student, ExchangeRequest } from '../types';
 import { storage } from '../services/storage';
+import { api } from '../services/api';
 
 interface ExchangeRequestsProps {
   currentStudent: Student | null;
+  requests?: ExchangeRequest[];
+  isBackendSession: boolean;
+  loadError?: string | null;
+  onOpenChat: (request: ExchangeRequest) => void;
+  onClose: () => void;
   onScheduleSession: (peerId?: string, defaultSkill?: string) => void;
-  onRequestsUpdated: () => void;
+  onRequestsUpdated: () => void | Promise<void>;
 }
 
 export const ExchangeRequests: React.FC<ExchangeRequestsProps> = ({
   currentStudent,
+  requests,
+  isBackendSession,
+  loadError,
+  onOpenChat,
+  onClose,
   onScheduleSession,
   onRequestsUpdated,
 }) => {
   const [activeTab, setActiveTab] = useState<'INCOMING' | 'SENT' | 'ACCEPTED' | 'HISTORY'>('INCOMING');
+  const [actionError, setActionError] = useState<string | null>(null);
 
   if (!currentStudent) return null;
 
-  const allRequests = storage.getRequests();
+  const allRequests = requests ?? storage.getRequests();
   const incoming = allRequests.filter(r => r.receiverId === currentStudent.id && r.status === 'PENDING');
   const sent = allRequests.filter(r => r.senderId === currentStudent.id && r.status === 'PENDING');
   const accepted = allRequests.filter(
@@ -42,19 +54,37 @@ export const ExchangeRequests: React.FC<ExchangeRequestsProps> = ({
       (r.status === 'REJECTED' || r.status === 'CANCELLED')
   );
 
-  const handleAccept = (reqId: string) => {
-    storage.acceptExchangeRequest(reqId);
-    onRequestsUpdated();
+  const handleAccept = async (reqId: string) => {
+    try {
+      setActionError(null);
+      if (isBackendSession) await api.acceptRequest(reqId);
+      else storage.acceptExchangeRequest(reqId);
+      await onRequestsUpdated();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Could not accept this request.');
+    }
   };
 
-  const handleReject = (reqId: string) => {
-    storage.rejectExchangeRequest(reqId);
-    onRequestsUpdated();
+  const handleReject = async (reqId: string) => {
+    try {
+      setActionError(null);
+      if (isBackendSession) await api.rejectRequest(reqId);
+      else storage.rejectExchangeRequest(reqId);
+      await onRequestsUpdated();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Could not decline this request.');
+    }
   };
 
-  const handleCancel = (reqId: string) => {
-    storage.cancelExchangeRequest(reqId);
-    onRequestsUpdated();
+  const handleCancel = async (reqId: string) => {
+    try {
+      setActionError(null);
+      if (isBackendSession) await api.cancelRequest(reqId);
+      else storage.cancelExchangeRequest(reqId);
+      await onRequestsUpdated();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Could not cancel this request.');
+    }
   };
 
   return (
@@ -78,6 +108,14 @@ export const ExchangeRequests: React.FC<ExchangeRequestsProps> = ({
           <span className="text-xs font-bold text-[#16A36A] bg-green-50 px-3 py-1.5 rounded-xl font-mono">
             {accepted.length} Connected
           </span>
+          <button
+            type="button"
+            aria-label="Close exchange requests"
+            onClick={onClose}
+            className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-xl transition-colors cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
       </div>
 
@@ -132,6 +170,11 @@ export const ExchangeRequests: React.FC<ExchangeRequestsProps> = ({
       </div>
 
       {/* Requests Content */}
+      {(loadError || actionError) && (
+        <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700">
+          {actionError || loadError}
+        </p>
+      )}
       {activeTab === 'INCOMING' && (
         <div className="space-y-4">
           {incoming.length === 0 ? (
@@ -184,7 +227,7 @@ export const ExchangeRequests: React.FC<ExchangeRequestsProps> = ({
                     Decline
                   </button>
                   <button
-                    onClick={() => handleAccept(req.id)}
+                    onClick={() => void handleAccept(req.id)}
                     className="px-5 py-2 bg-[#7546D8] hover:bg-[#5425A8] text-white rounded-xl text-xs font-bold shadow-sm transition-colors flex items-center gap-1.5 cursor-pointer"
                   >
                     <Check className="w-4 h-4" />
@@ -300,6 +343,12 @@ export const ExchangeRequests: React.FC<ExchangeRequestsProps> = ({
                     >
                       <Calendar className="w-3.5 h-3.5" />
                       <span>Schedule Learning Session</span>
+                    </button>
+                    <button
+                      onClick={() => onOpenChat(req)}
+                      className="px-5 py-2.5 bg-[#FAF9FD] hover:bg-[#E9DDFC] text-[#5425A8] border border-[#E9DDFC] rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                    >
+                      Open Private Chat
                     </button>
                   </div>
                 </div>

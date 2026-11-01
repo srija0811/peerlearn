@@ -6,13 +6,9 @@ import {
   Award,
   Grid,
   ArrowRightLeft,
-  CalendarDays,
-  Activity,
-  CheckCircle,
-  Clock,
-  ShieldAlert
+  MessageSquare,
 } from 'lucide-react';
-import { Student } from '../types';
+import { ExchangeRequest, Student } from '../types';
 import { storage } from '../services/storage';
 
 interface SidebarProps {
@@ -20,6 +16,7 @@ interface SidebarProps {
   onNavigate: (tab: string) => void;
   currentStudent: Student | null;
   isAdmin: boolean;
+  requests?: ExchangeRequest[];
   onStudentUpdated: () => void;
 }
 
@@ -28,10 +25,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onNavigate,
   currentStudent,
   isAdmin,
+  requests,
   onStudentUpdated,
 }) => {
   const pendingCount = currentStudent
-    ? storage.getRequestsForStudent(currentStudent.id).incoming.length
+    ? (requests
+        ? requests.filter(request => request.receiverId === currentStudent.id && request.status === 'PENDING').length
+        : storage.getRequestsForStudent(currentStudent.id).incoming.length)
     : 0;
 
   const mutualMatches = currentStudent
@@ -79,15 +79,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
       badgeBg: 'bg-[#7546D8] text-white',
     },
     {
-      id: 'sessions',
-      label: 'Learning Sessions',
-      icon: CalendarDays,
-      badge: null,
-    },
-    {
-      id: 'activity',
-      label: 'Campus Activity',
-      icon: Activity,
+      id: 'peer-chat',
+      label: 'Peer Chat',
+      icon: MessageSquare,
       badge: null,
     },
   ];

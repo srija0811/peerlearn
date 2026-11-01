@@ -2,9 +2,14 @@ package com.peerlearn;
 
 import com.peerlearn.model.ExchangeRequest;
 import com.peerlearn.model.LearningSession;
+import com.peerlearn.model.Notification;
+import com.peerlearn.model.PrivateMessage;
 import com.peerlearn.model.Student;
+import com.peerlearn.repository.NotificationRepository;
+import com.peerlearn.repository.PrivateMessageRepository;
 import com.peerlearn.service.ExchangeRequestService;
 import com.peerlearn.service.LearningSessionService;
+import com.peerlearn.service.PrivateMessageService;
 import com.peerlearn.service.StudentService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -15,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -30,6 +36,15 @@ public class ExchangeRequestAndSessionTest {
 
     @Autowired
     private LearningSessionService learningSessionService;
+
+    @Autowired
+    private PrivateMessageService privateMessageService;
+
+    @Autowired
+    private NotificationRepository notificationRepository;
+
+    @Autowired
+    private PrivateMessageRepository privateMessageRepository;
 
     private Student sender;
     private Student receiver;
@@ -81,6 +96,66 @@ public class ExchangeRequestAndSessionTest {
 
         ExchangeRequest accepted = exchangeRequestService.acceptRequest(req1.getId(), receiver.getId());
         assertEquals(ExchangeRequest.RequestStatus.ACCEPTED, accepted.getStatus());
+    }
+
+    @Test
+    @DisplayName("Acceptance notifies only the request owner")
+    void testAcceptNotifiesOnlyRequestOwner() {
+        ExchangeRequest request = exchangeRequestService.sendRequest(
+                sender.getId(), receiver.getId(), "Python", "Java", "Proposal", "Online");
+        long senderNotificationsBefore = notificationRepository
+                .findByRecipientIdOrderByCreatedAtDesc(sender.getId()).size();
+        long receiverNotificationsBefore = notificationRepository
+                .findByRecipientIdOrderByCreatedAtDesc(receiver.getId()).size();
+
+        exchangeRequestService.acceptRequest(request.getId(), receiver.getId());
+
+        List<Notification> ownerNotifications = notificationRepository
+                .findByRecipientIdOrderByCreatedAtDesc(sender.getId());
+        List<Notification> accepterNotifications = notificationRepository
+                .findByRecipientIdOrderByCreatedAtDesc(receiver.getId());
+
+        assertEquals(senderNotificationsBefore + 1, ownerNotifications.size());
+        assertEquals(receiverNotificationsBefore, accepterNotifications.size());
+        assertEquals("REQUEST_ACCEPTED", ownerNotifications.get(0).getType());
+        assertEquals(sender.getId(), ownerNotifications.get(0).getRecipient().getId());
+        assertEquals(request.getId(), ownerNotifications.get(0).getRelatedRequestId());
+        assertThrows(IllegalStateException.class, () ->
+                exchangeRequestService.acceptRequest(request.getId(), receiver.getId()));
+        assertEquals(senderNotificationsBefore + 1,
+                notificationRepository.findByRecipientIdOrderByCreatedAtDesc(sender.getId()).size());
+    }
+
+    @Test
+    @DisplayName("Private messages are limited to accepted request participants")
+    void testPrivateMessageAuthorization() {
+        ExchangeRequest request = exchangeRequestService.sendRequest(
+                sender.getId(), receiver.getId(), "Python", "Java", "Proposal", "Online");
+
+        assertThrows(IllegalStateException.class, () ->
+                privateMessageService.getMessages(sender.getEmail(), request.getId()));
+
+        exchangeRequestService.acceptRequest(request.getId(), receiver.getId());
+        PrivateMessage message = privateMessageService.sendMessage(sender.getEmail(), request.getId(), "Hello");
+
+        assertNotNull(message.getId());
+        assertEquals(1, privateMessageService.getMessages(sender.getEmail(), request.getId()).size());
+        assertEquals(1, privateMessageService.getMessages(receiver.getEmail(), request.getId()).size());
+
+        Student thirdStudent = studentService.registerStudent(Student.builder()
+                .fullName("Third Student")
+                .email("third@example.edu")
+                .password("pass123")
+                .collegeName("Third College")
+                .branch("CSE")
+                .academicYear("2nd Year")
+                .build());
+
+        assertThrows(SecurityException.class, () ->
+                privateMessageService.getMessages(thirdStudent.getEmail(), request.getId()));
+        assertThrows(SecurityException.class, () ->
+                privateMessageService.sendMessage(thirdStudent.getEmail(), request.getId(), "Not allowed"));
+        assertEquals(1, privateMessageRepository.findByRequest_IdOrderByCreatedAtAsc(request.getId()).size());
     }
 
     @Test

@@ -138,9 +138,14 @@ public class SecurityConfig {
                     "/requests/**",
                     "/sessions/**",
                     "/profile/**",
+                    "/api/requests/**",
+                    "/api/notifications/**"
+                ).hasRole("STUDENT")
+
+                // Other student and Admin APIs
+                .requestMatchers(
                     "/api/students/**",
                     "/api/matches/**",
-                    "/api/requests/**",
                     "/api/sessions/**"
                 ).hasAnyRole("STUDENT", "ADMIN")
 

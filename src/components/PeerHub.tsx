@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   MessageSquare,
   FileText,
@@ -17,13 +17,20 @@ import {
   Calendar,
   Sparkles,
   ArrowRightLeft,
-  Users
+  Users,
+  X,
+  Paperclip,
+  Download
 } from 'lucide-react';
 import { Student, ExchangeRequest, ChatMessage, SharedNote } from '../types';
 import { storage } from '../services/storage';
+import { api } from '../services/api';
 
 interface PeerHubProps {
   currentStudent: Student | null;
+  requests: ExchangeRequest[];
+  initialRequestId?: string | null;
+  isBackendSession: boolean;
   onNavigate: (tab: string) => void;
   onScheduleSession: (peerId?: string, defaultSkill?: string) => void;
   onRequestsUpdated: () => void;
@@ -31,27 +38,33 @@ interface PeerHubProps {
 
 export const PeerHub: React.FC<PeerHubProps> = ({
   currentStudent,
+  requests,
+  initialRequestId,
+  isBackendSession,
   onNavigate,
   onScheduleSession,
   onRequestsUpdated,
 }) => {
-  if (!currentStudent) return null;
-
-  const allRequests = storage.getRequests();
-  const userRequests = allRequests.filter(
-    r => r.senderId === currentStudent.id || r.receiverId === currentStudent.id
-  );
+  const userRequests = currentStudent
+    ? (isBackendSession ? requests : storage.getRequests()).filter(
+        request => request.senderId === currentStudent.id || request.receiverId === currentStudent.id
+      )
+    : [];
 
   const acceptedRequests = userRequests.filter(r => r.status === 'ACCEPTED');
   const pendingRequests = userRequests.filter(r => r.status === 'PENDING');
 
-  const [selectedRequest, setSelectedRequest] = useState<ExchangeRequest | null>(
-    acceptedRequests[0] || pendingRequests[0] || null
-  );
+  const [selectedRequest, setSelectedRequest] = useState<ExchangeRequest | null>(null);
 
   const [activeTab, setActiveTab] = useState<'chat' | 'notes'>('chat');
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [notes, setNotes] = useState<SharedNote[]>([]);
   const [inputMessage, setInputMessage] = useState('');
+  const [chatError, setChatError] = useState<string | null>(null);
+  const [isSending, setIsSending] = useState(false);
+  const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const attachmentInputRef = useRef<HTMLInputElement>(null);
 
   // New Note state
   const [isAddingNote, setIsAddingNote] = useState(false);
@@ -60,6 +73,52 @@ export const PeerHub: React.FC<PeerHubProps> = ({
   const [noteSkill, setNoteSkill] = useState('');
   const [noteType, setNoteType] = useState<'NOTE' | 'CODE' | 'RESOURCE_LINK'>('NOTE');
   const [noteUrl, setNoteUrl] = useState('');
+
+  useEffect(() => {
+    const requestId = initialRequestId || selectedRequest?.id;
+    const updatedSelected = userRequests.find(request => request.id === requestId);
+    setSelectedRequest(updatedSelected || acceptedRequests[0] || pendingRequests[0] || null);
+  }, [requests, currentStudent?.id, isBackendSession, initialRequestId]);
+
+  useEffect(() => {
+    let active = true;
+    const loadMessages = async () => {
+      if (!selectedRequest || !isBackendSession || selectedRequest.status !== 'ACCEPTED') {
+        setMessages([]);
+        setChatError(null);
+        return;
+      }
+
+      try {
+        const loadedMessages = await api.getMessages(selectedRequest.id);
+        if (active) {
+          setMessages(loadedMessages);
+          setChatError(null);
+        }
+      } catch (error) {
+        if (active) {
+          setChatError(error instanceof Error ? error.message : 'Unable to load private messages.');
+        }
+      }
+    };
+
+    void loadMessages();
+    const timer = window.setInterval(() => void loadMessages(), 5000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [selectedRequest?.id, selectedRequest?.status, isBackendSession]);
+
+  useEffect(() => {
+    if (!selectedRequest) {
+      setNotes([]);
+      return;
+    }
+    setNotes(storage.getNotesForRequest(selectedRequest.id));
+  }, [selectedRequest?.id, selectedRequest?.status]);
+
+  if (!currentStudent) return null;
 
   const isAccepted = selectedRequest?.status === 'ACCEPTED';
   const isReceiver = selectedRequest ? currentStudent.id === selectedRequest.receiverId : false;
@@ -77,24 +136,45 @@ export const PeerHub: React.FC<PeerHubProps> = ({
     ? isReceiver ? selectedRequest.senderId : selectedRequest.receiverId
     : '';
 
-  const messages: ChatMessage[] = selectedRequest && isAccepted
-    ? storage.getMessagesForRequest(selectedRequest.id)
+  const visibleNotes: SharedNote[] = selectedRequest && isAccepted
+    ? notes
     : [];
 
-  const notes: SharedNote[] = selectedRequest && isAccepted
-    ? storage.getNotesForRequest(selectedRequest.id)
-    : [];
-
-  const handleSendMessage = (textToSend?: string) => {
+  const handleSendMessage = async (textToSend?: string) => {
     const text = (textToSend || inputMessage).trim();
-    if (!text || !selectedRequest || !isAccepted) return;
+    if (!text || !selectedRequest || !isAccepted || !isBackendSession || isSending) return;
 
     try {
-      storage.sendMessage(selectedRequest.id, text);
+      setIsSending(true);
+      setChatError(null);
+      const savedMessage = await api.sendMessage(selectedRequest.id, text);
+      setMessages(previous => [...previous, savedMessage]);
       setInputMessage('');
-      onRequestsUpdated();
-    } catch (err: any) {
-      alert(err.message || 'Could not send message');
+    } catch (error) {
+      setChatError(error instanceof Error ? error.message : 'Could not send message.');
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const handleUploadAttachment = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !selectedRequest || !isAccepted || !isBackendSession || isUploadingAttachment) return;
+    if (file.size > 10 * 1024 * 1024) {
+      setChatError('Attachments must be 10 MB or smaller.');
+      return;
+    }
+
+    try {
+      setIsUploadingAttachment(true);
+      setChatError(null);
+      const savedMessage = await api.sendMessageAttachment(selectedRequest.id, file);
+      setMessages(previous => [...previous, savedMessage]);
+    } catch (error) {
+      setChatError(error instanceof Error ? error.message : 'Could not upload attachment.');
+    } finally {
+      setIsUploadingAttachment(false);
     }
   };
 
@@ -105,6 +185,8 @@ export const PeerHub: React.FC<PeerHubProps> = ({
     try {
       storage.createSharedNote({
         requestId: selectedRequest.id,
+        authorId: currentStudent.id,
+        authorName: currentStudent.name,
         title: noteTitle.trim(),
         content: noteContent.trim(),
         skillName: noteSkill || selectedRequest.teachingSkill,
@@ -116,15 +198,17 @@ export const PeerHub: React.FC<PeerHubProps> = ({
       setNoteContent('');
       setNoteUrl('');
       setIsAddingNote(false);
+      setNotes(storage.getNotesForRequest(selectedRequest.id));
       onRequestsUpdated();
-    } catch (err: any) {
-      alert(err.message || 'Could not create note');
+    } catch (error) {
+      setChatError(error instanceof Error ? error.message : 'Could not create note.');
     }
   };
 
   const handleDeleteNote = (noteId: string) => {
     if (confirm('Delete this shared study note?')) {
       storage.deleteSharedNote(noteId);
+      if (selectedRequest) setNotes(storage.getNotesForRequest(selectedRequest.id));
       onRequestsUpdated();
     }
   };
@@ -135,12 +219,21 @@ export const PeerHub: React.FC<PeerHubProps> = ({
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const handleAcceptRequest = () => {
+  const handleAcceptRequest = async () => {
     if (!selectedRequest) return;
-    storage.acceptExchangeRequest(selectedRequest.id);
-    onRequestsUpdated();
-    const updated = storage.getRequests().find(r => r.id === selectedRequest.id);
-    if (updated) setSelectedRequest(updated);
+    try {
+      if (isBackendSession) {
+        await api.acceptRequest(selectedRequest.id);
+        await onRequestsUpdated();
+      } else {
+        storage.acceptExchangeRequest(selectedRequest.id);
+        onRequestsUpdated();
+        const updated = storage.getRequests().find(r => r.id === selectedRequest.id);
+        if (updated) setSelectedRequest(updated);
+      }
+    } catch (error) {
+      setChatError(error instanceof Error ? error.message : 'Could not accept request.');
+    }
   };
 
   return (
@@ -164,6 +257,14 @@ export const PeerHub: React.FC<PeerHubProps> = ({
           <span className="font-bold text-amber-800 bg-amber-50 px-3 py-1.5 rounded-xl border border-amber-100">
             {pendingRequests.length} Pending (Locked)
           </span>
+          <button
+            type="button"
+            aria-label="Close peer chat"
+            onClick={() => onNavigate('dashboard')}
+            className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-xl transition-colors cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
       </div>
 
@@ -299,6 +400,16 @@ export const PeerHub: React.FC<PeerHubProps> = ({
                 Choose an accepted peer from the left sidebar to start chatting and viewing shared study notes.
               </p>
             </div>
+          ) : !isBackendSession ? (
+            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-[#FAF9FD]">
+              <div className="w-16 h-16 bg-amber-50 text-amber-600 rounded-3xl flex items-center justify-center mb-3 border border-amber-200">
+                <Lock className="w-8 h-8" />
+              </div>
+              <h3 className="text-lg font-bold text-[#202033] mb-1">Sign in to open private chat</h3>
+              <p className="text-xs text-[#77758A] max-w-md">
+                Private messages are available only through your authenticated student account.
+              </p>
+            </div>
           ) : !isAccepted ? (
             /* LOCKED SCREEN */
             <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-[#FAF9FD]">
@@ -371,7 +482,7 @@ export const PeerHub: React.FC<PeerHubProps> = ({
                       }`}
                     >
                       <FileText className="w-3.5 h-3.5" />
-                      <span>Shared Notes ({notes.length})</span>
+                      <span>Shared Notes ({visibleNotes.length})</span>
                     </button>
                   </div>
 
@@ -382,12 +493,26 @@ export const PeerHub: React.FC<PeerHubProps> = ({
                     <Calendar className="w-3.5 h-3.5" />
                     <span>Schedule</span>
                   </button>
+                  <button
+                    type="button"
+                    aria-label="Close conversation"
+                    title="Close chat"
+                    onClick={() => onNavigate('dashboard')}
+                    className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-xl transition-colors cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
                 </div>
               </div>
 
               {/* TAB 1: PEER CHAT */}
               {activeTab === 'chat' && (
                 <div className="flex-1 flex flex-col overflow-hidden bg-[#FAF9FD]">
+                  {chatError && (
+                    <p role="alert" className="mx-5 mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                      {chatError}
+                    </p>
+                  )}
                   <div className="flex-1 p-5 overflow-y-auto space-y-3">
                     {messages.length === 0 ? (
                       <div className="text-center py-16 text-[#77758A] text-xs">
@@ -414,7 +539,29 @@ export const PeerHub: React.FC<PeerHubProps> = ({
                                     : 'bg-white text-[#202033] border border-gray-100 rounded-tl-none'
                                 }`}
                               >
-                                {msg.text}
+                                {msg.text && <p>{msg.text}</p>}
+                                {msg.attachmentName && (
+                                  <a
+                                    href={api.getMessageAttachmentUrl(msg.requestId, msg.id)}
+                                    download={msg.attachmentName}
+                                    className={`mt-2 inline-flex max-w-full items-center gap-2 rounded-xl border px-3 py-2 text-left ${
+                                      isMe
+                                        ? 'border-white/30 bg-white/10 text-white'
+                                        : 'border-gray-200 bg-[#FAF9FD] text-[#5425A8]'
+                                    }`}
+                                  >
+                                    <Paperclip className="h-4 w-4 shrink-0" />
+                                    <span className="min-w-0 break-all">
+                                      {msg.attachmentName}
+                                      {msg.attachmentSize !== undefined && (
+                                        <span className="ml-1 text-[10px] opacity-75">
+                                          ({(msg.attachmentSize / (1024 * 1024)).toFixed(2)} MB)
+                                        </span>
+                                      )}
+                                    </span>
+                                    <Download className="h-3.5 w-3.5 shrink-0" />
+                                  </a>
+                                )}
                               </div>
                               <span className="text-[10px] text-gray-400 mt-1 px-1 block">
                                 {msg.timestamp}
@@ -445,6 +592,12 @@ export const PeerHub: React.FC<PeerHubProps> = ({
 
                   {/* Input form */}
                   <div className="p-3 bg-white border-t border-gray-100 shrink-0">
+                    <input
+                      ref={attachmentInputRef}
+                      type="file"
+                      className="hidden"
+                      onChange={handleUploadAttachment}
+                    />
                     <form
                       onSubmit={e => {
                         e.preventDefault();
@@ -452,6 +605,18 @@ export const PeerHub: React.FC<PeerHubProps> = ({
                       }}
                       className="flex items-center gap-2"
                     >
+                      <button
+                        type="button"
+                        aria-label="Upload chat file"
+                        title="Upload a file (max 10 MB)"
+                        onClick={() => attachmentInputRef.current?.click()}
+                        disabled={isUploadingAttachment || isSending}
+                        className="p-2.5 text-[#7546D8] hover:bg-[#F3EEFC] disabled:opacity-40 rounded-xl transition-all cursor-pointer"
+                      >
+                        {isUploadingAttachment
+                          ? <Clock className="w-4 h-4 animate-spin" />
+                          : <Paperclip className="w-4 h-4" />}
+                      </button>
                       <input
                         type="text"
                         placeholder={`Message ${peerName}...`}
@@ -461,7 +626,7 @@ export const PeerHub: React.FC<PeerHubProps> = ({
                       />
                       <button
                         type="submit"
-                        disabled={!inputMessage.trim()}
+                        disabled={!inputMessage.trim() || isSending}
                         className="p-2.5 bg-[#7546D8] hover:bg-[#5425A8] disabled:opacity-40 text-white rounded-xl shadow-md transition-all cursor-pointer"
                       >
                         <Send className="w-4 h-4" />
@@ -574,7 +739,7 @@ export const PeerHub: React.FC<PeerHubProps> = ({
 
                   {/* Notes Feed */}
                   <div className="flex-1 overflow-y-auto space-y-3">
-                    {notes.length === 0 ? (
+                    {visibleNotes.length === 0 ? (
                       <div className="text-center py-12 bg-white rounded-2xl border border-gray-100 p-6">
                         <FileText className="w-8 h-8 text-gray-300 mx-auto mb-2" />
                         <p className="text-xs font-bold text-[#202033]">No notes created yet</p>
@@ -583,7 +748,7 @@ export const PeerHub: React.FC<PeerHubProps> = ({
                         </p>
                       </div>
                     ) : (
-                      notes.map(n => {
+                      visibleNotes.map(n => {
                         const isMine = n.authorId === currentStudent.id;
                         return (
                           <div

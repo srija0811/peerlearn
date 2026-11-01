@@ -2,11 +2,12 @@ package com.peerlearn.service;
 
 import com.peerlearn.model.Activity;
 import com.peerlearn.model.ExchangeRequest;
+import com.peerlearn.model.Notification;
 import com.peerlearn.model.Student;
 import com.peerlearn.repository.ActivityRepository;
 import com.peerlearn.repository.ExchangeRequestRepository;
+import com.peerlearn.repository.NotificationRepository;
 import com.peerlearn.repository.StudentRepository;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -17,14 +18,26 @@ import java.util.List;
 @Transactional
 public class ExchangeRequestService {
 
-    @Autowired
-    private ExchangeRequestRepository exchangeRequestRepository;
+    private final ExchangeRequestRepository exchangeRequestRepository;
+    private final StudentRepository studentRepository;
+    private final ActivityRepository activityRepository;
+    private final NotificationRepository notificationRepository;
 
-    @Autowired
-    private StudentRepository studentRepository;
+    public ExchangeRequestService(
+            ExchangeRequestRepository exchangeRequestRepository,
+            StudentRepository studentRepository,
+            ActivityRepository activityRepository,
+            NotificationRepository notificationRepository) {
+        this.exchangeRequestRepository = exchangeRequestRepository;
+        this.studentRepository = studentRepository;
+        this.activityRepository = activityRepository;
+        this.notificationRepository = notificationRepository;
+    }
 
-    @Autowired
-    private ActivityRepository activityRepository;
+    public ExchangeRequest sendRequest(String currentEmail, Long receiverId, String teachingSkill, String learningSkill, String message, String preferredMode) {
+        Student sender = getStudentByEmail(currentEmail);
+        return sendRequest(sender.getId(), receiverId, teachingSkill, learningSkill, message, preferredMode);
+    }
 
     public ExchangeRequest sendRequest(Long senderId, Long receiverId, String teachingSkill, String learningSkill, String message, String preferredMode) {
         if (senderId.equals(receiverId)) {
@@ -65,26 +78,33 @@ public class ExchangeRequestService {
     }
 
     public ExchangeRequest acceptRequest(Long requestId, Long currentUserId) {
-        ExchangeRequest request = exchangeRequestRepository.findById(requestId)
+        ExchangeRequest request = exchangeRequestRepository.findByIdForUpdate(requestId)
                 .orElseThrow(() -> new IllegalArgumentException("Request not found."));
 
         if (!request.getReceiver().getId().equals(currentUserId)) {
             throw new SecurityException("Only the recipient can accept this exchange request.");
+        }
+        if (request.getStatus() != ExchangeRequest.RequestStatus.PENDING) {
+            throw new IllegalStateException("Only pending requests can be accepted.");
         }
 
         request.setStatus(ExchangeRequest.RequestStatus.ACCEPTED);
         request.setUpdatedAt(LocalDateTime.now());
         ExchangeRequest saved = exchangeRequestRepository.save(request);
 
-        activityRepository.save(Activity.builder()
-                .type("ACCEPT")
+        notificationRepository.save(Notification.builder()
+                .recipient(request.getSender())
                 .title("Exchange Request Accepted")
-                .description(request.getReceiver().getFullName() + " accepted " + request.getSender().getFullName() + "'s exchange proposal. Ready to schedule sessions!")
-                .studentId(request.getReceiver().getId())
-                .studentName(request.getReceiver().getFullName())
+                .message(request.getReceiver().getFullName() + " accepted your exchange request.")
+                .type("REQUEST_ACCEPTED")
+                .relatedRequestId(request.getId())
                 .build());
 
         return saved;
+    }
+
+    public ExchangeRequest acceptRequest(String currentEmail, Long requestId) {
+        return acceptRequest(requestId, getStudentByEmail(currentEmail).getId());
     }
 
     public ExchangeRequest rejectRequest(Long requestId, Long currentUserId) {
@@ -113,6 +133,29 @@ public class ExchangeRequestService {
         return exchangeRequestRepository.save(request);
     }
 
+    public ExchangeRequest rejectRequest(String currentEmail, Long requestId) {
+        return rejectRequest(requestId, getStudentByEmail(currentEmail).getId());
+    }
+
+    public ExchangeRequest cancelRequest(String currentEmail, Long requestId) {
+        return cancelRequest(requestId, getStudentByEmail(currentEmail).getId());
+    }
+
+    @Transactional(readOnly = true)
+    public List<ExchangeRequest> getRequestsForStudent(Long studentId) {
+        return exchangeRequestRepository.findBySenderIdOrReceiverIdOrderByCreatedAtDesc(studentId, studentId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ExchangeRequest> getRequestsForStudent(String currentEmail) {
+        return getRequestsForStudent(getStudentByEmail(currentEmail).getId());
+    }
+
+    @Transactional(readOnly = true)
+    public Long getStudentIdForEmail(String email) {
+        return getStudentByEmail(email).getId();
+    }
+
     @Transactional(readOnly = true)
     public List<ExchangeRequest> getIncomingPendingRequests(Long studentId) {
         return exchangeRequestRepository.findByReceiverIdAndStatus(studentId, ExchangeRequest.RequestStatus.PENDING);
@@ -126,5 +169,10 @@ public class ExchangeRequestService {
     @Transactional(readOnly = true)
     public List<ExchangeRequest> getAcceptedConnections(Long studentId) {
         return exchangeRequestRepository.findAcceptedForStudent(studentId, ExchangeRequest.RequestStatus.ACCEPTED);
+    }
+
+    private Student getStudentByEmail(String email) {
+        return studentRepository.findByEmailIgnoreCase(email)
+                .orElseThrow(() -> new IllegalArgumentException("Authenticated student not found."));
     }
 }

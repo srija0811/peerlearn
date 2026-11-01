@@ -31,6 +31,9 @@ public class Notification {
     @Builder.Default
     private String type = "GENERAL"; // "REQUEST", "SESSION", "GENERAL"
 
+    @Column(name = "related_request_id")
+    private Long relatedRequestId;
+
     @Column(name = "is_read", nullable = false)
     @Builder.Default
     private Boolean read = false;

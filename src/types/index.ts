@@ -78,6 +78,41 @@ export interface ExchangeRequest {
   updatedAt?: string;
 }
 
+export interface ChatMessage {
+  id: string;
+  requestId: string;
+  senderId: string;
+  senderName: string;
+  text: string;
+  timestamp: string;
+  attachmentName?: string;
+  attachmentSize?: number;
+}
+
+export interface SharedNote {
+  id: string;
+  requestId: string;
+  authorId: string;
+  authorName: string;
+  title: string;
+  content: string;
+  skillName: string;
+  category?: SkillCategoryName;
+  type: 'NOTE' | 'CODE' | 'RESOURCE_LINK';
+  url?: string;
+  createdAt: string;
+}
+
+export interface StudentNotification {
+  id: string;
+  title: string;
+  message: string;
+  type: string;
+  relatedRequestId?: string;
+  read: boolean;
+  createdAt: string;
+}
+
 export type SessionStatus = 'UPCOMING' | 'COMPLETED' | 'CANCELLED';
 
 export interface LearningSession {

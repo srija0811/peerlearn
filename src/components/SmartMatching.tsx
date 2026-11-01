@@ -17,12 +17,14 @@ import { storage } from '../services/storage';
 
 interface SmartMatchingProps {
   currentStudent: Student | null;
+  matches?: MutualSkillMatch[];
   onConnect: (student: Student, defaultTeaching?: string, defaultLearning?: string) => void;
   onViewProfile: (student: Student) => void;
 }
 
 export const SmartMatching: React.FC<SmartMatchingProps> = ({
   currentStudent,
+  matches,
   onConnect,
   onViewProfile,
 }) => {
@@ -37,7 +39,7 @@ export const SmartMatching: React.FC<SmartMatchingProps> = ({
     );
   }
 
-  const allMatches = storage.getMatchesForStudent(currentStudent.id);
+  const allMatches = matches || storage.getMatchesForStudent(currentStudent.id);
 
   const filteredMatches = allMatches.filter(m => {
     if (filterType === 'MUTUAL' && m.matchType !== 'MUTUAL') return false;

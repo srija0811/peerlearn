@@ -1,5 +1,5 @@
 -- =========================================================
--- PEERLEARN - COMPLETE MYSQL DATABASE SCHEMA (ALL 10 ENTITIES)
+-- PEERLEARN - COMPLETE MYSQL DATABASE SCHEMA (ALL 11 ENTITIES)
 -- Database: peerlearn_db
 -- =========================================================
 
@@ -102,12 +102,30 @@ CREATE TABLE IF NOT EXISTS notifications (
     title VARCHAR(150) NOT NULL,
     message TEXT NOT NULL,
     type VARCHAR(50) DEFAULT 'GENERAL',
+    related_request_id BIGINT NULL,
     is_read BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_notif_recipient FOREIGN KEY (recipient_id) REFERENCES students(id) ON DELETE CASCADE
+    CONSTRAINT fk_notif_recipient FOREIGN KEY (recipient_id) REFERENCES students(id) ON DELETE CASCADE,
+    CONSTRAINT fk_notification_request FOREIGN KEY (related_request_id) REFERENCES exchange_requests(id) ON DELETE SET NULL
 );
 
--- 8. Activities Feed
+-- 8. Private Messages (one conversation per accepted exchange request)
+CREATE TABLE IF NOT EXISTS private_messages (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    request_id BIGINT NOT NULL,
+    sender_id BIGINT NOT NULL,
+    content VARCHAR(4000) NOT NULL,
+    attachment_name VARCHAR(255),
+    attachment_content_type VARCHAR(150),
+    attachment_size BIGINT,
+    attachment_data LONGBLOB,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_private_messages_request_created (request_id, created_at),
+    CONSTRAINT fk_private_message_request FOREIGN KEY (request_id) REFERENCES exchange_requests(id) ON DELETE CASCADE,
+    CONSTRAINT fk_private_message_sender FOREIGN KEY (sender_id) REFERENCES students(id) ON DELETE CASCADE
+);
+
+-- 9. Activities Feed
 CREATE TABLE IF NOT EXISTS activities (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     type VARCHAR(50) NOT NULL,
@@ -118,7 +136,7 @@ CREATE TABLE IF NOT EXISTS activities (
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 9. Reviews
+-- 10. Reviews
 CREATE TABLE IF NOT EXISTS reviews (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     reviewer_id BIGINT NOT NULL,
@@ -131,7 +149,7 @@ CREATE TABLE IF NOT EXISTS reviews (
     CONSTRAINT fk_review_reviewee FOREIGN KEY (reviewee_id) REFERENCES students(id) ON DELETE CASCADE
 );
 
--- 10. Achievements & Badges
+-- 11. Achievements & Badges
 CREATE TABLE IF NOT EXISTS achievements (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     student_id BIGINT NOT NULL,

@@ -1,17 +1,25 @@
 package com.peerlearn.repository;
 
 import com.peerlearn.model.ExchangeRequest;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface ExchangeRequestRepository extends JpaRepository<ExchangeRequest, Long> {
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT r FROM ExchangeRequest r WHERE r.id = :requestId")
+    Optional<ExchangeRequest> findByIdForUpdate(@Param("requestId") Long requestId);
+
     List<ExchangeRequest> findByReceiverIdAndStatus(Long receiverId, ExchangeRequest.RequestStatus status);
     List<ExchangeRequest> findBySenderIdAndStatus(Long senderId, ExchangeRequest.RequestStatus status);
+    List<ExchangeRequest> findBySenderIdOrReceiverIdOrderByCreatedAtDesc(Long senderId, Long receiverId);
 
     @Query("SELECT r FROM ExchangeRequest r WHERE (r.sender.id = :studentId OR r.receiver.id = :studentId) AND r.status = :status")
     List<ExchangeRequest> findAcceptedForStudent(@Param("studentId") Long studentId, @Param("status") ExchangeRequest.RequestStatus status);

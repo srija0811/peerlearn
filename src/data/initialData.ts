@@ -374,14 +374,6 @@ export const INITIAL_ACTIVITIES: ActivityLog[] = [
 
 export const INITIAL_ANNOUNCEMENTS: Announcement[] = [
   {
-    id: 'ann-1',
-    title: 'Mid-Semester Peer Skill Exchange Fair',
-    content: 'Schedule and complete at least 2 peer learning sessions this week to earn the exclusive "Campus Mentor" badge and 250 bonus XP!',
-    priority: 'HIGH',
-    author: 'Campus Academic Council & PeerLearn Admin',
-    createdAt: '2026-10-28T08:00:00.000Z'
-  },
-  {
     id: 'ann-2',
     title: 'New Skill Category: Cloud & DevOps',
     content: 'Docker, Kubernetes, AWS, and Git are now active. Check out the top mentors on the leaderboard to arrange peer sessions.',

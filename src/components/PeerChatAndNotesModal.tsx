@@ -20,13 +20,15 @@ import {
   User,
   ArrowRightLeft
 } from 'lucide-react';
-import { ExchangeRequest, ChatMessage, SharedNote, SkillCategoryName } from '../types';
+import { ExchangeRequest, ChatMessage, SharedNote, SkillCategoryName, Student } from '../types';
 import { storage } from '../services/storage';
+import { api } from '../services/api';
 
 interface PeerChatAndNotesModalProps {
   isOpen: boolean;
   onClose: () => void;
   request: ExchangeRequest | null;
+  currentStudent: Student | null;
   initialTab?: 'chat' | 'notes';
   onScheduleSession?: (peerId: string, skill: string) => void;
   onRequestAccepted?: () => void;
@@ -36,6 +38,7 @@ export const PeerChatAndNotesModal: React.FC<PeerChatAndNotesModalProps> = ({
   isOpen,
   onClose,
   request,
+  currentStudent,
   initialTab = 'chat',
   onScheduleSession,
   onRequestAccepted,
@@ -55,7 +58,6 @@ export const PeerChatAndNotesModal: React.FC<PeerChatAndNotesModalProps> = ({
   const [noteUrl, setNoteUrl] = useState('');
   const [noteCategory, setNoteCategory] = useState<SkillCategoryName>('Programming');
 
-  const currentStudent = storage.getCurrentStudent();
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -65,15 +67,20 @@ export const PeerChatAndNotesModal: React.FC<PeerChatAndNotesModalProps> = ({
   useEffect(() => {
     if (request && isOpen) {
       setNoteSkill(request.teachingSkill);
-      refreshData();
+      void refreshData().catch(error => {
+        alert(error instanceof Error ? error.message : 'Unable to load private chat.');
+      });
     }
   }, [request, isOpen]);
 
-  const refreshData = () => {
+  const refreshData = async () => {
     if (!request) return;
     if (request.status === 'ACCEPTED') {
-      setMessages(storage.getMessagesForRequest(request.id));
+      setMessages(await api.getMessages(request.id));
       setNotes(storage.getNotesForRequest(request.id));
+    } else {
+      setMessages([]);
+      setNotes([]);
     }
   };
 
@@ -93,26 +100,28 @@ export const PeerChatAndNotesModal: React.FC<PeerChatAndNotesModalProps> = ({
   const peerAvatarBg = isReceiver ? request.senderAvatarBg : request.receiverAvatarBg;
   const peerId = isReceiver ? request.senderId : request.receiverId;
 
-  const handleSendMessage = (textToSend?: string) => {
+  const handleSendMessage = async (textToSend?: string) => {
     const text = (textToSend || inputMessage).trim();
-    if (!text || !request) return;
+    if (!text || !request || request.status !== 'ACCEPTED') return;
 
     try {
-      storage.sendMessage(request.id, text);
+      await api.sendMessage(request.id, text);
       setInputMessage('');
-      refreshData();
-    } catch (err: any) {
-      alert(err.message || 'Could not send message');
+      await refreshData();
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Could not send message.');
     }
   };
 
-  const handleCreateNote = (e: React.FormEvent) => {
+  const handleCreateNote = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!noteTitle.trim() || !noteContent.trim() || !request) return;
 
     try {
       storage.createSharedNote({
         requestId: request.id,
+        authorId: currentStudent?.id || '',
+        authorName: currentStudent?.name || '',
         title: noteTitle.trim(),
         content: noteContent.trim(),
         skillName: noteSkill || request.teachingSkill,
@@ -126,9 +135,9 @@ export const PeerChatAndNotesModal: React.FC<PeerChatAndNotesModalProps> = ({
       setNoteContent('');
       setNoteUrl('');
       setIsAddingNote(false);
-      refreshData();
-    } catch (err: any) {
-      alert(err.message || 'Could not create note');
+      await refreshData();
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Could not create note.');
     }
   };
 
@@ -145,13 +154,13 @@ export const PeerChatAndNotesModal: React.FC<PeerChatAndNotesModalProps> = ({
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const handleAcceptRequestFromModal = () => {
+  const handleAcceptRequestFromModal = async () => {
     try {
-      storage.acceptExchangeRequest(request.id);
+      await api.acceptRequest(request.id);
       if (onRequestAccepted) onRequestAccepted();
-      refreshData();
-    } catch (err: any) {
-      alert(err.message || 'Failed to accept');
+      await refreshData();
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Failed to accept.');
     }
   };
 
@@ -208,6 +217,8 @@ export const PeerChatAndNotesModal: React.FC<PeerChatAndNotesModalProps> = ({
             )}
             <button
               onClick={onClose}
+              type="button"
+              aria-label="Close peer chat"
               className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-xl transition-colors cursor-pointer"
             >
               <X className="w-5 h-5" />
