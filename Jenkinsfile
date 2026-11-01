@@ -1,4 +1,4 @@
-
+﻿
 pipeline {
     agent any
 
@@ -132,6 +132,16 @@ pipeline {
             }
         }
 
+        stage('Docker Connection Test') {
+            steps {
+                bat '''
+                    echo Checking Docker executable...
+                    where docker
+                    echo Checking Docker Engine...
+                    docker version
+                '''
+            }
+        }
         stage('5. Docker Build') {
             steps {
                 echo '=== Stage 5: Build Docker Container Image ==='
@@ -200,3 +210,4 @@ pipeline {
         }
     }
 }
+
