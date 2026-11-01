@@ -38,9 +38,9 @@ pipeline {
                             @echo off
                             echo Compiling PeerLearn Java 21 Spring Boot application...
                             if exist spring-boot-backend (
-                                cd spring-boot-backend && mvnw.cmd compile
+                                cd spring-boot-backend && call mvnw.cmd compile
                             ) else (
-                                mvnw.cmd compile
+                                call mvnw.cmd compile
                             )
                         '''
                     }
@@ -65,9 +65,9 @@ pipeline {
                             @echo off
                             echo Running JUnit 5 test suite...
                             if exist spring-boot-backend (
-                                cd spring-boot-backend && mvnw.cmd test
+                                cd spring-boot-backend && call mvnw.cmd test
                             ) else (
-                                mvnw.cmd test
+                                call mvnw.cmd test
                             )
                         '''
                     }
@@ -97,9 +97,9 @@ pipeline {
                             @echo off
                             echo Packaging Spring Boot JAR artifact...
                             if exist spring-boot-backend (
-                                cd spring-boot-backend && mvnw.cmd package -DskipTests=true
+                                cd spring-boot-backend && call mvnw.cmd package -DskipTests=true
                             ) else (
-                                mvnw.cmd package -DskipTests=true
+                                call mvnw.cmd package -DskipTests=true
                             )
                         '''
                     }
@@ -175,4 +175,6 @@ pipeline {
         }
     }
 }
+
+
 
